@@ -1,0 +1,200 @@
+
+
+***(Youtube)*** 
+https://youtu.be/sKmKolADzRY?feature=shared
+
+***( ARDUINO )***
+// by Tanes Pasanta
+#include <Wire.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// WiFi credentials
+const char* ssid = "**********************";  // Your SSID
+const char* password = "***********";         // Your WiFi password
+
+// MQTT server configuration
+const char* mqtt_server = "********************";  //MQTT server 
+const int mqtt_port = 1833;  
+const char* mqtt_topic = "***********";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// WiFi setup function
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// Reconnect to MQTT server
+void reconnect() {
+  if (WiFi.status() != WL_CONNECTED) {
+    setup_wifi();  // Reconnect to WiFi if disconnected
+  }
+
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (client.connect("ESP32Client")) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Set pin 4 for water pump control
+  pinMode(4, OUTPUT);
+  digitalWrite(4, LOW);  // Turn off pump at the start
+  delay(1000);
+
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();  // Reconnect to MQTT if disconnected
+  }
+  client.loop();
+
+  // Read soil moisture from analog pin 33
+  int value = analogRead(33);
+  value = map(value, 2400, 4100, 100, 0);  // Map analog value to 100-0 range
+  Serial.println(value);
+
+  // Publish soil moisture to MQTT every 5 seconds
+  static unsigned long lastTime = 0;
+  unsigned long currentTime = millis();
+
+  if (currentTime - lastTime >= 5000) {
+    lastTime = currentTime;
+
+    char moistureString[8];
+    dtostrf(value, 3, 0, moistureString);  // Convert the moisture value to string
+    client.publish(mqtt_topic, moistureString);
+    Serial.print("Publishing humidity: ");
+    Serial.println(moistureString);
+  }
+
+  // Control the water pump based on moisture levels
+  static bool pumpState = false;  // Track water pump state
+
+  if (value < 35 && !pumpState) {
+    digitalWrite(4, HIGH);  // Turn on pump if moisture is low
+    pumpState = true;
+  } else if (value > 85 && pumpState) {
+    digitalWrite(4, LOW);   // Turn off pump if moisture is high
+    pumpState = false;
+  }
+
+  // Display moisture level and pump state
+  if (value < 35) {
+    Serial.print("Moisture: LOW ");
+    Serial.println("Water Pump is ON");
+  } else if (value >= 35 && value <= 85) {
+    Serial.print("Moisture: MID ");
+    Serial.println("Water Pump is OFF");
+  } else {
+    Serial.print("Moisture: HIGH ");
+    Serial.println("Water Pump is OFF");
+  }
+}
+
+
+***( PYTHON ) Humidity graph***
+# by Tanes Pasanta
+import paho.mqtt.client as mqtt
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from collections import deque
+
+# MQTT Broker details
+MQTT_BROKER = "****************"
+MQTT_PORT = 1883
+MQTT_TOPIC = "****************************"
+
+plt.rcParams['font.family'] = 'tahoma'  # หรือใช้ชื่อฟอนต์ที่รองรับภาษาไทยในระบบ
+
+# Create a deque to store the received humidity data
+data = deque(maxlen=100)
+
+# Callback when a message is received
+def on_message(client, userdata, msg):
+    try:
+        humidity = float(msg.payload.decode())
+        data.append(humidity)
+    except ValueError:
+        pass  # Ignore if we can't convert payload to float
+
+# Connect to the MQTT broker
+client = mqtt.Client()
+client.on_message = on_message
+client.connect(MQTT_BROKER, MQTT_PORT, 60)
+client.subscribe(MQTT_TOPIC)
+client.loop_start()
+
+# Initialize the plot
+fig, ax = plt.subplots()
+x_data = deque(maxlen=100)  # To store time or index values
+y_data = deque(maxlen=100)  # To store humidity values
+line, = ax.plot([], [], 'r-', marker='o', markersize=5)  # Red line with dots
+
+# Set up the plot titles and labels
+ax.set_title("กราฟความชื้นในดิน", fontsize=16)
+ax.set_xlabel("เวลา (วิ) ", fontsize=14)
+ax.set_ylabel("ความชื้น (%)", fontsize=14)
+
+# Function to update the plot in real-time
+def update(frame):
+    if len(data) > 0:
+        # Reset the graph if X-axis reaches 100 points
+        if len(x_data) >= 100:
+            x_data.clear()
+            y_data.clear()
+
+        # Append new data points
+        x_data.append(len(x_data))  # Incrementing time or index
+        y_data.append(data[-1])  # Latest humidity value
+
+        line.set_data(x_data, y_data)
+        ax.relim()  # Recalculate limits
+        ax.autoscale_view()  # Autoscale view for the new data
+
+    return line,
+
+# Animate the plot with an interval of 1000ms (1 second)
+ani = animation.FuncAnimation(fig, update, interval=1000)
+
+# Show the plot
+plt.show()
+
+# Gracefully close the MQTT connection on script termination
+try:
+    while True:
+        pass  # Keep the script running
+except KeyboardInterrupt:
+    client.loop_stop()
+    client.disconnect()
+
+
