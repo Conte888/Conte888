@@ -3,7 +3,7 @@
 </div>
 
 
-  <a href="[your-youtube-URL](https://youtube.com/@contepasanta?feature=shared)">
+  <a href="https://youtube.com/@contepasanta?feature=shared">
     <img src="https://img.shields.io/badge/YouTube-red?style=for-the-badge&logo=youtube&logoColor=white" alt="Youtube Badge"/>
   </a>
  
